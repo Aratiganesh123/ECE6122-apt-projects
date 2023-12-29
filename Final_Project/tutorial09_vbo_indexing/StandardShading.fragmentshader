@@ -1,0 +1,81 @@
+#version 120
+
+// Interpolated values from the vertex shaders
+varying vec2 UV;
+varying vec3 Position_worldspace;
+varying vec3 Normal_cameraspace;
+varying vec3 EyeDirection_cameraspace;
+varying vec3 LightDirection_cameraspace;
+varying vec3 fragmentColor;
+
+// Values that stay constant for the whole mesh.
+uniform sampler2D myTextureSampler;
+uniform mat4 MV;
+uniform vec3 LightPosition_worldspace;
+uniform int justGreen;
+uniform sampler2D textureGreen;
+
+// Uniforms for internal light
+uniform vec3 InternalLightPosition_worldspace;
+uniform float LightPowerInternal;
+
+// Additional uniforms for flickering effect
+uniform float time;
+uniform int objectId;
+
+uniform int applyInternalLight;
+
+// Function to approximate randomness
+float random(float n) {
+    return fract(sin(n) * 43758.5453123);
+}
+
+void main() {
+    // Light emission properties
+    vec3 MaterialDiffuseColor = texture2D(myTextureSampler, UV).rgb;
+
+    // Light and material properties
+    vec3 LightColor = vec3(1, 1, 1);
+    float LightPower = 40.0f;
+    vec3 MaterialAmbientColor = vec3(0.5, 0.5, 0.5) * MaterialDiffuseColor;
+    vec3 MaterialSpecularColor = vec3(0.3, 0.3, 0.3);
+
+    // Distance to the external light
+    float distance = length(LightPosition_worldspace - Position_worldspace);
+
+    // Normal, light direction, and eye vector calculations
+    vec3 n = normalize(Normal_cameraspace);
+    vec3 l = normalize(LightDirection_cameraspace);
+    float cosTheta = clamp(dot(n, l), 0, 1);
+    vec3 E = normalize(EyeDirection_cameraspace);
+    vec3 R = reflect(-l, n);
+    
+    float cosAlpha = clamp(dot(E, R), 0, 1);
+
+    // Distance to the internal light
+    float distanceInternal = length(InternalLightPosition_worldspace - Position_worldspace);
+    vec3 li = normalize(InternalLightPosition_worldspace - Position_worldspace);
+    float cosThetaInternal = clamp(dot(n, li), 0, 1);
+    vec3 Ri = reflect(-li, n);
+    float cosAlphaInternal = clamp(dot(E, Ri), 0, 1);
+
+    // Calculate a flickering effect based on time and objectId
+    vec3 finalColor = MaterialAmbientColor
+                      + (MaterialDiffuseColor * LightColor * LightPower * cosTheta / (distance * distance))
+                      + (MaterialSpecularColor * LightColor * LightPower * pow(cosAlpha, 5) / (distance * distance));
+
+   if (applyInternalLight == 1) {
+        float noise = random(time + float(objectId));
+        float flickeringIntensity = abs(sin(time + noise)) * 0.5 + 0.5;
+        float flickeringLightPowerInternal = LightPowerInternal * flickeringIntensity;
+
+        // Make the internal light visible from all angles
+        // Reducing the angle dependency by using a smaller factor for cosThetaInternal
+        // or you can use a constant value like 1.0 to completely remove the angle dependency
+        float angleFactor = 0.2; // Smaller value means less angle dependency
+        finalColor += (MaterialDiffuseColor * LightColor * flickeringLightPowerInternal * angleFactor / (distanceInternal * distanceInternal))
+                      + (MaterialSpecularColor * LightColor * flickeringLightPowerInternal * pow(cosAlphaInternal, 5) / (distanceInternal * distanceInternal));
+    }
+
+    gl_FragColor.rgb = finalColor;
+}
